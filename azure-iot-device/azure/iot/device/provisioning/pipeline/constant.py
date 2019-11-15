@@ -19,7 +19,7 @@ DEFAULT_POLLING_INTERVAL = 2
 Default timeout to use when communicating with the service
 """
 
-DEFAULT_TIMEOUT_INTERVAL = 30
+DEFAULT_TIMEOUT_INTERVAL = 3
 
 SUBSCRIBE_TOPIC_PROVISIONING = "$dps/registrations/res/#"
 """
