@@ -8,11 +8,12 @@ from azure.iot.device.common.pipeline import pipeline_ops_base, pipeline_thread
 from azure.iot.device.common.pipeline.pipeline_stages_base import PipelineStage
 from . import pipeline_ops_provisioning
 from azure.iot.device import exceptions
-from azure.iot.device.provisioning.pipeline import constant
+from azure.iot.device.provisioning.pipeline import constant as dps_constants
 from azure.iot.device.provisioning.models.registration_result import (
     RegistrationResult,
     RegistrationState,
 )
+from azure.iot.device.common.pipeline import pipeline_exceptions
 import logging
 import weakref
 import json
@@ -206,7 +207,7 @@ class RegistrationStage(CommonProvisioningStage):
                     retry_interval = (
                         int(provisioning_op.retry_after, 10)
                         if provisioning_op.retry_after is not None
-                        else constant.DEFAULT_POLLING_INTERVAL
+                        else dps_constants.DEFAULT_POLLING_INTERVAL
                     )
                     decoded_response = self._decode_response(provisioning_op)
                     operation_id = self._get_operation_id(decoded_response)
@@ -274,7 +275,7 @@ class RegistrationStage(CommonProvisioningStage):
 
             self.send_op_down(
                 pipeline_ops_base.RequestAndResponseOperation(
-                    request_type=constant.REGISTER,
+                    request_type=dps_constants.REGISTER,
                     method="PUT",
                     resource_location="/",
                     request_body=op.request_payload,
@@ -320,7 +321,7 @@ class PollingStatusStage(CommonProvisioningStage):
                     polling_interval = (
                         int(query_op.retry_after, 10)
                         if query_op.retry_after is not None
-                        else constant.DEFAULT_POLLING_INTERVAL
+                        else dps_constants.DEFAULT_POLLING_INTERVAL
                     )
                     decoded_response = self._decode_response(query_op)
                     operation_id = self._get_operation_id(decoded_response)
@@ -380,7 +381,7 @@ class PollingStatusStage(CommonProvisioningStage):
 
             self.send_op_down(
                 pipeline_ops_base.RequestAndResponseOperation(
-                    request_type=constant.QUERY,
+                    request_type=dps_constants.QUERY,
                     method="GET",
                     resource_location="/",
                     operation_id=op.operation_id,
@@ -391,3 +392,93 @@ class PollingStatusStage(CommonProvisioningStage):
 
         else:
             self.send_op_down(op)
+
+
+class ProvisioningOpsTimeOutStage(PipelineStage):
+    """
+    The purpose of the timeout stage is to add timeout errors to register and query operations.
+
+    For each operation that needs a timeout check, this stage will add a timer to
+    the operation.  If the timer elapses, this stage will fail the operation with
+    a PipelineTimeoutError.  The intention is that a higher stage will know what to
+    do with that error and act accordingly (either return the error to the user or
+    retry).
+
+    Once a timeout happens the provisioning service gets disconnected.
+    There is nop retry for these operations.
+    The register operation needs to be re-attempted from the client.
+    """
+
+    def __init__(self):
+        super(ProvisioningOpsTimeOutStage, self).__init__()
+        # Fixed list of fixed intervals for DPS operations.
+        self.timeout_intervals = {
+            # pipeline_ops_provisioning.SendRegistrationRequestOperation: dps_constants.DEFAULT_TIMEOUT_INTERVAL,
+            # pipeline_ops_provisioning.SendQueryRequestOperation: dps_constants.DEFAULT_TIMEOUT_INTERVAL,
+            pipeline_ops_base.RequestOperation: dps_constants.DEFAULT_TIMEOUT_INTERVAL
+        }
+
+    @pipeline_thread.runs_on_pipeline_thread
+    def _execute_op(self, op):
+        if type(op) in self.timeout_intervals:
+            # Create a timer to watch for operation timeout on this op and attach it
+            # to the op.
+            self_weakref = weakref.ref(self)
+
+            @pipeline_thread.invoke_on_pipeline_thread_nowait
+            def on_timeout():
+                this = self_weakref()
+                logger.info(
+                    "{stage_name}({op_name}): returning timeout error".format(
+                        stage_name=this.name, op_name=op.name
+                    )
+                )
+
+                # this.send_worker_op_down(worker_op=pipeline_ops_base.DisconnectOperation(callback=op.callback), op=op)
+
+                # previous_callback = op.callback
+
+                # def on_complete(op, error):
+                #     timout_error = pipeline_exceptions.PipelineTimeoutError(
+                #                 "Any provisioning operation has been cancelled due to timing out before device provisioning service could respond"
+                #             )
+                #     previous_callback(op, error=timout_error)
+
+                # this.send_op_down(pipeline_ops_base.DisconnectOperation(callback=on_complete))
+
+                this.complete_op(
+                    op,
+                    pipeline_exceptions.PipelineTimeoutError(
+                        "Any provisioning operation has been cancelled due to timing out before device provisioning service could respond"
+                    ),
+                )
+
+            logger.debug(
+                "{stage_name}({op_name}): Creating timer".format(
+                    stage_name=self.name, op_name=op.name
+                )
+            )
+            op.timeout_timer = Timer(self.timeout_intervals[type(op)], on_timeout)
+            op.timeout_timer.start()
+
+            logger.debug(
+                "{stage_name}({op_name}): Sending down".format(
+                    stage_name=self.name, op_name=op.name
+                )
+            )
+            self.send_op_down_and_intercept_return(
+                op=op, intercepted_return=self._on_intercepted_return
+            )
+        else:
+            self.send_op_down(op)
+
+    @pipeline_thread.runs_on_pipeline_thread
+    def _on_intercepted_return(self, op, error):
+        # When an op comes back, delete the timer and pass it right up.
+        if op.timeout_timer:
+            op.timeout_timer.cancel()
+            op.timeout_timer = None
+        logger.debug(
+            "{stage_name}({op_name}): Op completed".format(stage_name=self.name, op_name=op.name)
+        )
+        self.send_completed_op_up(op, error)

@@ -19,6 +19,7 @@ from azure.iot.device.provisioning.pipeline import pipeline_ops_provisioning
 from azure.iot.device import constant as pkg_constant
 import json
 from . import constant as pipeline_constant
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,8 @@ class ProvisioningMQTTTranslationStage(PipelineStage):
                 registration_payload = DeviceRegistrationPayload(
                     registration_id=op.registration_id, custom_payload=op.request_body
                 )
+                # TODO Remove Sleep Only for testing time out
+                time.sleep(5)
                 self.send_worker_op_down(
                     worker_op=pipeline_ops_mqtt.MQTTPublishOperation(
                         topic=topic,
@@ -141,6 +144,7 @@ class ProvisioningMQTTTranslationStage(PipelineStage):
                 self.send_event_up(
                     pipeline_events_base.ResponseEvent(
                         request_id=request_id,
+                        # TODO Remove and put status code. Only to check retry timer func
                         status_code=int(status_code, 10),
                         response_body=event.payload,
                         retry_after=retry_after,
