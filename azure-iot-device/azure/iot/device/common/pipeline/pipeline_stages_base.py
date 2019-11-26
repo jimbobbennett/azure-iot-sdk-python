@@ -481,8 +481,6 @@ class ConnectionLockStage(BlockingStage):
             self.send_op_down(op)
 
 
-
-
 class CoordinateRequestAndResponseStage(PipelineStage):
     """
     Pipeline stage which is responsible for coordinating RequestAndResponseOperation operations.  For each
