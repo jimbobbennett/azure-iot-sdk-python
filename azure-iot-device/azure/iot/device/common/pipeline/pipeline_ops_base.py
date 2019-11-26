@@ -55,6 +55,7 @@ class PipelineOperation(object):
         self.needs_connection = False
         self.completed = False  # Operation has been fully completed
         self.completing = False  # Operation is in the process of completing
+        self.error = None  # Error associated with Operation completion
         self.retry_timer = None
         self.retry_count = 0
 
@@ -119,6 +120,7 @@ class PipelineOperation(object):
             handle_exceptions.handle_background_exception(e)
         else:
             # Operation is now in the process of completing
+            self.completing = True
             self.error = error
 
             while self.callback_stack:
