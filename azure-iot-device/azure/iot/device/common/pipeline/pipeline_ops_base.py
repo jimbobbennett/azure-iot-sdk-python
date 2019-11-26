@@ -55,7 +55,8 @@ class PipelineOperation(object):
         self.needs_connection = False
         self.completed = False  # Operation has been fully completed
         self.completing = False  # Operation is in the process of completing
-        self.error = None  # Error associated with Operation completion
+        self.retry_timer = None
+        self.retry_count = 0
 
         self.add_callback(callback)
 
@@ -118,7 +119,6 @@ class PipelineOperation(object):
             handle_exceptions.handle_background_exception(e)
         else:
             # Operation is now in the process of completing
-            self.completing = True
             self.error = error
 
             while self.callback_stack:
@@ -226,9 +226,7 @@ class ConnectOperation(PipelineOperation):
     Even though this is an base operation, it will most likely be handled by a more specific stage (such as an IoTHub or MQTT stage).
     """
 
-    def __init__(self, callback):
-        self.retry_timer = None
-        super(ConnectOperation, self).__init__(callback)
+    pass
 
 
 class ReconnectOperation(PipelineOperation):

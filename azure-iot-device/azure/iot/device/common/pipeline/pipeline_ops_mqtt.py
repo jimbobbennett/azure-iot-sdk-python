@@ -68,7 +68,6 @@ class MQTTPublishOperation(PipelineOperation):
         self.topic = topic
         self.payload = payload
         self.needs_connection = True
-        self.retry_timer = None
 
 
 class MQTTSubscribeOperation(PipelineOperation):
@@ -91,7 +90,6 @@ class MQTTSubscribeOperation(PipelineOperation):
         self.topic = topic
         self.needs_connection = True
         self.timeout_timer = None
-        self.retry_timer = None
 
 
 class MQTTUnsubscribeOperation(PipelineOperation):
@@ -114,4 +112,3 @@ class MQTTUnsubscribeOperation(PipelineOperation):
         self.topic = topic
         self.needs_connection = True
         self.timeout_timer = None
-        self.retry_timer = None
