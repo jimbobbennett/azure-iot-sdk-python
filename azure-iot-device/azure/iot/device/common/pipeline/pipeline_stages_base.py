@@ -367,7 +367,7 @@ class BlockingStage(PipelineStage):
         self.blocked = False
 
     @pipeline_thread.runs_on_pipeline_thread
-    def _enable_op_block(self, op):
+    def _block(self, op):
         """
         block this stage while we're waiting for the connect/disconnect/reconnect operation to complete.
         """
@@ -379,10 +379,9 @@ class BlockingStage(PipelineStage):
         self.queue.put_nowait(op)
 
     @pipeline_thread.runs_on_pipeline_thread
-    def _disable_op_block(self, op, error):
+    def _unblock(self, op, error):
         """
-        Unblock this stage after the connect/disconnect/reconnect operation is complete.  This also means
-        releasing all the operations that were queued up.
+        Unblock this stage and release all the operations that were queued up.
         """
         logger.debug("{}({}): unblocking and releasing queued ops.".format(self.name, op.name))
         self.blocked = False
@@ -409,7 +408,10 @@ class BlockingStage(PipelineStage):
                 logger.debug(
                     "{}({}): releasing {} op.".format(self.name, op.name, op_to_release.name)
                 )
-                # call run_op directly here so operations go through this stage again (especiall connect/disconnect ops)
+                # Call run_op directly here so operations go through this stage again
+                # It's critical that it calls run_op intead of send_op_down because this
+                # stage may already be blocked _again_ because of some op that was released
+                # before this one.
                 self.run_op(op_to_release)
 
 
@@ -432,7 +434,7 @@ class ConnectionLockStage(BlockingStage):
                     self.name, op.name
                 )
             )
-            self.queue.put_nowait(op)
+            self._add_op_to_queue(op)
 
         elif isinstance(op, pipeline_ops_base.ConnectOperation) and self.pipeline_root.connected:
             logger.info("{}({}): Transport is connected.  Completing.".format(self.name, op.name))
@@ -452,7 +454,7 @@ class ConnectionLockStage(BlockingStage):
             or isinstance(op, pipeline_ops_base.ConnectOperation)
             or isinstance(op, pipeline_ops_base.ReconnectOperation)
         ):
-            self._enable_op_block(op)
+            self._block(op)
 
             @pipeline_thread.runs_on_pipeline_thread
             def on_operation_complete(op, error):
@@ -467,7 +469,7 @@ class ConnectionLockStage(BlockingStage):
                         "{}({}): op succeeded.  Unblocking queue".format(self.name, op.name)
                     )
 
-                self._disable_op_block(op, error)
+                self._unblock(op, error)
                 logger.debug(
                     "{}({}): unblock is complete.  completing op that caused unblock".format(
                         self.name, op.name
@@ -762,18 +764,16 @@ class ReconnectStage(BlockingStage):
         if self.blocked:
             self._add_op_to_queue(op)
         else:
-            op.add_callback(self._on_intercepted_return)
+            op.add_callback(self._requeue_on_connection_failure)
+            self._send_op_down(op)
 
-    # BKTODO; beter name
     @pipeline_thread.runs_on_pipeline_thread
-    def _on_intercepted_return(self, op, error):
+    def _requeue_on_connection_failure(self, op, error):
         if error and self._should_try_reconnecting(error):
-            self._enable_op_block()
-            op.complete = False
+            self._block()
+            op.half_completion()
             self._add_op_to_queue(op)
             self._ensure_future_reconnection()
-        else:
-            self._send_completed_op_up(op, error)
 
     @pipeline_thread.runs_on_pipeline_thread
     def _ensure_future_reconnection(self):
@@ -855,7 +855,7 @@ class ReconnectStage(BlockingStage):
         if self.previous:
             self.previous.on_connected()
 
-        self._disable_op_block(None, None)
+        self._unblock(None, None)
 
     @pipeline_thread.runs_on_pipeline_thread
     def on_disconnected(self):
