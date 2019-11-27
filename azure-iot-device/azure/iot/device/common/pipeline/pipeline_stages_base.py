@@ -379,15 +379,13 @@ class BlockingStage(PipelineStage):
         self.queue.put_nowait(op)
 
     @pipeline_thread.runs_on_pipeline_thread
-    def _unblock(self, op, error):
+    def _unblock(self, error):
         """
         Unblock this stage and release all the operations that were queued up.
         """
-        logger.debug("{}({}): unblocking and releasing queued ops.".format(self.name, op.name))
+        logger.debug("{}: unblocking and releasing queued ops.".format(self.name))
         self.blocked = False
-        logger.info(
-            "{}({}): processing {} items in queue".format(self.name, op.name, self.queue.qsize())
-        )
+        logger.info("{}: processing {} items in queue".format(self.name, self.queue.qsize()))
         # Loop through our queue and release all the blocked operations
         # Put a new Queue in self.queue because releasing ops might put them back in the
         # queue, especially if there's a ConnectOperation in the list of ops to release
@@ -399,15 +397,11 @@ class BlockingStage(PipelineStage):
                 # if we're unblocking the queue because something (like a connect operation) failed,
                 # then we fail all of the blocked operations with the same error.
                 logger.error(
-                    "{}({}): failing {} op because of error".format(
-                        self.name, op.name, op_to_release.name
-                    )
+                    "{}: failing {} op because of error".format(self.name, op_to_release.name)
                 )
                 op_to_release.complete(error=error)
             else:
-                logger.debug(
-                    "{}({}): releasing {} op.".format(self.name, op.name, op_to_release.name)
-                )
+                logger.debug("{}: releasing {} op.".format(self.name, op_to_release.name))
                 # Call run_op directly here so operations go through this stage again
                 # It's critical that it calls run_op intead of send_op_down because this
                 # stage may already be blocked _again_ because of some op that was released
@@ -469,7 +463,7 @@ class ConnectionLockStage(BlockingStage):
                         "{}({}): op succeeded.  Unblocking queue".format(self.name, op.name)
                     )
 
-                self._unblock(op, error)
+                self._unblock(error)
                 logger.debug(
                     "{}({}): unblock is complete.  completing op that caused unblock".format(
                         self.name, op.name
@@ -764,8 +758,13 @@ class ReconnectStage(BlockingStage):
         if self.blocked:
             self._add_op_to_queue(op)
         else:
+            if isinstance(op, pipeline_ops_base.ConnectOperation):
+                self.pipeline_root.virtually_connected = True
+            elif isinstance(op, pipeline_ops_base.DisconnectOperation):
+                self.pipeline_root.virtually_connected = False
+
             op.add_callback(self._requeue_on_connection_failure)
-            self._send_op_down(op)
+            self.send_op_down(op)
 
     @pipeline_thread.runs_on_pipeline_thread
     def _requeue_on_connection_failure(self, op, error):
@@ -804,13 +803,18 @@ class ReconnectStage(BlockingStage):
 
         if not self.reconnect_timer:
             logger.info("{}: Setting reconnect timer".format(self.name))
-            self.retry_count += 1
-            self.reconnect_timer = Timer(self.reconnect_delay, on_reconnect_timer_expired)
+            self.reconnect_count += 1
+            reconnect_interval = self.pipeline_root.pipeline_configuration.reconnect_policy.get_next_retry_interval(
+                self.reconnect_count
+            )
+            self.reconnect_timer = Timer(reconnect_interval, on_reconnect_timer_expired)
             self.reconnect_timer.start()
 
     @pipeline_thread.runs_on_pipeline_thread
     def _should_try_reconnecting(self, error):
-        return self.pipeline_root.reconnect_policy.should_retry(error, self.retry_count + 1)
+        return self.pipeline_root.pipeline_configuration.reconnect_policy.should_retry(
+            error, self.retry_count + 1
+        )
 
     @pipeline_thread.runs_on_pipeline_thread
     def _on_reconnect_op_complete(self, op, error):
@@ -855,7 +859,7 @@ class ReconnectStage(BlockingStage):
         if self.previous:
             self.previous.on_connected()
 
-        self._unblock(None, None)
+        self._unblock(None)
 
     @pipeline_thread.runs_on_pipeline_thread
     def on_disconnected(self):
@@ -870,7 +874,6 @@ class ReconnectStage(BlockingStage):
                         self.name
                     )
                 )
-                self._
                 self._ensure_future_reconnection()
             else:
                 logger.info(
