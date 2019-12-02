@@ -411,11 +411,11 @@ class BlockingStage(PipelineStage):
 
 class ConnectionLockStage(BlockingStage):
     """
-    This stage is responsible for serializing connect, disconnect, and reconnect ops on
+    This stage is responsible for serializing connect, disconnect, and reauthorize ops on
     the pipeline, such that only a single one of these ops can go past this stage at a
     time.  This way, we don't have to worry about cases like "what happens if we try to
-    disconnect if we're in the middle of reconnecting."  This stage will wait for the
-    reconnect to complete before letting the disconnect past.
+    disconnect if we're in the middle of reauthorizing."  This stage will wait for the
+    reauthorize to complete before letting the disconnect past.
     """
 
     @pipeline_thread.runs_on_pipeline_thread
@@ -424,7 +424,7 @@ class ConnectionLockStage(BlockingStage):
         # to complete), we queue up all operations until after the connect completes.
         if self.blocked:
             logger.info(
-                "{}({}): pipeline is blocked waiting for a prior connect/disconnect/reconnect to complete.  queueing.".format(
+                "{}({}): pipeline is blocked waiting for a prior connect/disconnect/reauthorize to complete.  queueing.".format(
                     self.name, op.name
                 )
             )
@@ -446,7 +446,7 @@ class ConnectionLockStage(BlockingStage):
         elif (
             isinstance(op, pipeline_ops_base.DisconnectOperation)
             or isinstance(op, pipeline_ops_base.ConnectOperation)
-            or isinstance(op, pipeline_ops_base.ReconnectOperation)
+            or isinstance(op, pipeline_ops_base.ReauthorizeConnectionOperation)
         ):
             self._block(op)
 
