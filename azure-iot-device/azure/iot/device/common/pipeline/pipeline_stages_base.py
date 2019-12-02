@@ -813,7 +813,7 @@ class ReconnectStage(BlockingStage):
     @pipeline_thread.runs_on_pipeline_thread
     def _should_try_reconnecting(self, error):
         return self.pipeline_root.pipeline_configuration.reconnect_policy.should_retry(
-            error, self.retry_count + 1
+            error, self.reconnect_count + 1
         )
 
     @pipeline_thread.runs_on_pipeline_thread
