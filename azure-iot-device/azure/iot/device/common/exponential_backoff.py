@@ -32,6 +32,7 @@ class ExponentialBackoffWithJitter(AbstractRetryPolicy):
     def __init__(
         self,
         retry_error_list,
+        retry_op_list,
         immediate_first_retry,
         backoff_interval,
         minimum_interval_between_retries,
@@ -39,7 +40,8 @@ class ExponentialBackoffWithJitter(AbstractRetryPolicy):
         jitter_up_factor,
         jitter_down_factor,
     ):
-        self.retry_error_list = retry_error_list
+        self.retry_error_list = list(retry_error_list)
+        self.retry_op_list = list(retry_op_list)
         self.immediate_first_retry = immediate_first_retry
         self.backoff_interval = backoff_interval
         self.minimum_interval_between_retries = minimum_interval_between_retries
@@ -60,7 +62,7 @@ class ExponentialBackoffWithJitter(AbstractRetryPolicy):
                 self.maximum_interval_between_retries,
             )
 
-    def should_retry(self, error, retry_count):
+    def should_retry(self, op, error, retry_count):
         return type(error) in self.retry_error_list
 
 

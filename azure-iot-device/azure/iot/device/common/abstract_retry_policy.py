@@ -96,7 +96,7 @@ class AbstractRetryPolicy(object):
         pass
 
     @abc.abstractmethod
-    def should_retry(self, error, retry_count):
+    def should_retry(self, op, error, retry_count):
         """
         Based on the arguments, this function decides if the operation should be retried.  This decision
         can be made based on the specific error that caused the operation failure, the number of retries
