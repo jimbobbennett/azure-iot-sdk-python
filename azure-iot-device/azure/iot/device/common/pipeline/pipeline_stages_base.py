@@ -755,7 +755,16 @@ class ReconnectStage(PipelineStage):
 
     @pipeline_thread.runs_on_pipeline_thread
     def _execute_op(self, op):
-        self.send_op_down(op)
+        if isinstance(op, pipeline_ops_base.ConnectOperation):
+            self.pipeline_root.virtually_connected = True
+            self.send_op_down(op)
+
+        elif isinstance(op, pipeline_ops_base.DisconnectOperation):
+            self.pipeline_root.virtually_connected = False
+            self.send_op_down(op)
+
+        else:
+            self.send_op_down(op)
 
     @pipeline_thread.runs_on_pipeline_thread
     def _set_reconnect_timer(self):
