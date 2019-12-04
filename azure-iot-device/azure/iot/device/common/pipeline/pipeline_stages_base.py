@@ -694,8 +694,8 @@ class RetryStage(PipelineStage):
         """
         if error:
             op.retry_count += 1
-            if self.pipeline_root.pipeline_configuration.retry_policy.should_retry(
-                error, op, op.retry_count
+            if self.pipeline_root.pipeline_configuration.retry_policy.should_redo(
+                op, error, op.retry_count
             ):
                 return True
         return False
@@ -722,7 +722,7 @@ class RetryStage(PipelineStage):
                 # retry functionality this time too
                 this._execute_op(op)
 
-            interval = self.pipeline_root.pipeline_configuration.retry_policy.get_next_retry_interval(
+            interval = self.pipeline_root.pipeline_configuration.retry_policy.get_next_redo_interval(
                 op.retry_count
             )
             logger.warning(
@@ -811,7 +811,7 @@ class ReconnectStage(PipelineStage):
 
     @pipeline_thread.runs_on_pipeline_thread
     def _should_try_reconnecting(self, error):
-        return self.pipeline_root.pipeline_configuration.reconnect_policy.should_retry(
+        return self.pipeline_root.pipeline_configuration.reconnect_policy.should_redo(
             error, None, self.reconnect_count + 1
         )
 

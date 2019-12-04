@@ -8,12 +8,12 @@
 
 import logging
 import random
-from .abstract_retry_policy import AbstractRetryPolicy
+from .abstract_redo_policy import AbstractRedoPolicy
 
 logger = logging.getLogger(__name__)
 
 
-class ExponentialBackoffWithJitter(AbstractRetryPolicy):
+class ExponentialBackoffWithJitter(AbstractRedoPolicy):
     """
      Implements an Exponential Backoff with Jitter retry strategy.
      The function to calculate the next interval is the following:
@@ -21,68 +21,67 @@ class ExponentialBackoffWithJitter(AbstractRetryPolicy):
      F(x) = min(Cmin+ (2^(x-1)-1) * rand(C * (1–Jd), C * (1+Ju)), Cmax)
 
      Where:
-     x = retry count (1 after first failure, 2 after second, etc)
+     x = error count (1 after first failure, 2 after second, etc)
      C = backoff interval
      Jd = jitter down percentage
      Ju = jitter up percentage
-     Cmin = minimum retry interval
-     Cmax = maximum retry interval
+     Cmin = minimum redo interval
+     Cmax = maximum redo interval
     """
 
     def __init__(
         self,
-        retry_op_list,
-        retry_error_list,
-        immediate_first_retry,
+        redo_op_list,
+        redo_error_list,
+        immediate_first_redo,
         backoff_interval,
-        minimum_interval_between_retries,
-        maximum_interval_between_retries,
+        minimum_interval_between_redos,
+        maximum_interval_between_redos,
         jitter_up_factor,
         jitter_down_factor,
     ):
-        self.retry_error_list = list(retry_error_list)
-        self.retry_op_list = list(retry_op_list)
-        self.immediate_first_retry = immediate_first_retry
+        self.redo_error_list = list(redo_error_list)
+        self.redo_op_list = list(redo_op_list)
+        self.immediate_first_redo = immediate_first_redo
         self.backoff_interval = backoff_interval
-        self.minimum_interval_between_retries = minimum_interval_between_retries
-        self.maximum_interval_between_retries = maximum_interval_between_retries
+        self.minimum_interval_between_redos = minimum_interval_between_redos
+        self.maximum_interval_between_redos = maximum_interval_between_redos
         self.jitter_up_factor = jitter_up_factor
         self.jitter_down_factor = jitter_down_factor
 
-    def get_next_retry_interval(self, retry_count):
-        if self.immediate_first_retry and retry_count == 1:
+    def get_next_redo_interval(self, redo_count):
+        if self.immediate_first_redo and redo_count == 1:
             return 0
         else:
             random_jitter = self.backoff_interval * random.uniform(
                 1 - self.jitter_down_factor, 1 + self.jitter_up_factor
             )
             return min(
-                self.minimum_interval_between_retries
-                + (pow(2, retry_count - 1) - 1) * random_jitter,
-                self.maximum_interval_between_retries,
+                self.minimum_interval_between_redos + (pow(2, redo_count - 1) - 1) * random_jitter,
+                self.maximum_interval_between_redos,
             )
 
-    def should_retry(self, op, error, retry_count):
-        return type(error) in self.retry_error_list
+    def should_redo(self, op, error, redo_count):
+        return (type(op) in self.redo_op_list) and (type(error) in self.redo_error_list)
 
 
 class DefaultExponentialBackoff(ExponentialBackoffWithJitter):
     """
     Backoff interval (c): 100 ms by default.
-    Minimal interval between each retry (cMin). 100 milliseconds by default
-    Maximum interval between each retry (cMax). 10 seconds by default
+    Minimal interval between each redo (cMin). 100 milliseconds by default
+    Maximum interval between each redo (cMax). 10 seconds by default
     Jitter up factor (Ju). 0.25 by default.
     Jitter down factor (Jd). 0.5 by default
     """
 
-    def __init__(self, retry_op_list, retry_error_list):
+    def __init__(self, redo_op_list, redo_error_list):
         super(DefaultExponentialBackoff, self).__init__(
-            retry_op_list=retry_op_list,
-            retry_error_list=retry_error_list,
-            immediate_first_retry=True,
+            redo_op_list=redo_op_list,
+            redo_error_list=redo_error_list,
+            immediate_first_redo=True,
             backoff_interval=0.1,
-            minimum_interval_between_retries=0.1,
-            maximum_interval_between_retries=10,
+            minimum_interval_between_redos=0.1,
+            maximum_interval_between_redos=10,
             jitter_up_factor=0.25,
             jitter_down_factor=0.5,
         )

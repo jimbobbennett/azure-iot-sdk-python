@@ -10,7 +10,7 @@ import abc
 
 
 @six.add_metaclass(abc.ABCMeta)
-class AbstractRetryPolicy(object):
+class AbstractRedoPolicy(object):
     """
     Abstract Base Class which can define either a _retry policy_ or a _reconnect policy_.
 
@@ -49,19 +49,19 @@ class AbstractRetryPolicy(object):
     When this code is used for a _retry_ policy, the functions on this object gets called
     on a per-operation basis.  So, for example, if there are 2 send_event operations failing
     for the first time, the pipeline will call should_retry() and, maybe, get_next_retry_interval()
-    twice, once for each operation, and both times with retry_count=1.
+    twice, once for each operation, and both times with error_count=1.
 
     When this code is used for a _reconnect_ policy, functions on this object will get called on a
     per-connection-failure basis.  So, for example, if the client is attempting to send 2 events,
-    and the pipeline is unable to connect, should_retry(), and get_next_retry_interval() will
+    and the pipeline is unable to connect, should_redo(), and get_next_redo_interval() will
     get called only once called once because the pipeline failed to connect once.  Both events will
     be pended based on this single reconnection.
 
     The decision on which errors cause a _retry_ versus which errors cause a _reconnect_ is based
-    on the should_retry() method on the retry policy and the same method on the reconnect policy.
-    If should_retry() on the retry policy object returns True, then the operation is retried based
-    on the retry policy.  If, however, should_retry() on the retry policy returns False, but
-    should_retry() on the reconnect policy returns True, then the operation is retried based on the
+    on the should_redo() method on the retry policy and the same method on the reconnect policy.
+    If should_redo() on the retry policy object returns True, then the operation is retried based
+    on the retry policy.  If, however, should_redo() on the retry policy returns False, but
+    should_redo() on the reconnect policy returns True, then the operation is retried based on the
     reconnect policy.
 
     If the connection gets severed spontaneously, the reconnect policy is used to try re-establishing
@@ -71,7 +71,7 @@ class AbstractRetryPolicy(object):
 
     The reconnect policy can distinguish between failures caused by client action (such as a
     failed send_event) and spontaneous disconencts (such as a loss of signal) based on the error
-    parameter passed to should_retry().  If error=None, that means that the connection dropped, but
+    parameter passed to should_redo().  If error=None, that means that the connection dropped, but
     not because of anything the client did.  Using this, the reconnect policy can decide to be
     agressive about reconnecting (to be available to traffic coming from the service) or to be
     less agressive about reconnecting and only reconnect if the client attempts an operation
@@ -79,37 +79,37 @@ class AbstractRetryPolicy(object):
     """
 
     @abc.abstractmethod
-    def get_next_retry_interval(self, retry_count):
+    def get_next_redo_interval(self, error_count):
         """
-        Computes the interval to wait before retrying an operation.  This function assumes that the
-        decision to retry has already been made and it just needs to compute how long to wait
-        until retrying the next time.
+        Computes the interval to wait before redoing an operation.  This function assumes that the
+        decision to redo has already been made and it just needs to compute how long to wait
+        until redoing the next time.
 
-        When retry_count is 1, this method should assume that there was a single failure already
+        When error_count is 1, this method should assume that there was a single failure already
         and it should return how long (in seconds) to wait before trying the operation a second time.
-        When retry_count is 2, there have already been 2 failures for the specific operation and this
+        When error_count is 2, there have already been 2 failures for the specific operation and this
         method should return how long to wait before trying a third time, and so on.
 
-        @param {number} retry_count   Count of retries so far, including this one.  Set to 1 for the first retry.
-        @returns {number}             The time to wait before attempting a retry in seconds
+        @param {number} error_count   Count of retries so far, including this one.  Set to 1 for the first error.
+        @returns {number}             The time to wait before attempting a redo in seconds
         """
         pass
 
     @abc.abstractmethod
-    def should_retry(self, op, error, retry_count):
+    def should_redo(self, op, error, error_count):
         """
         Based on the arguments, this function decides if the operation should be retried.  This decision
         can be made based on the specific error that caused the operation failure, the number of retries
         already attempted, or both.
 
-        When retry_count is 1, this method should assume that there was a single failure already
-        and it should decide if the pipeline should try the operation a second time.  When retry_count is
+        When error_count is 1, this method should assume that there was a single failure already
+        and it should decide if the pipeline should try the operation a second time.  When error_count is
         2, there have already been 2 failures for the specific operation, and this method should decide
         if the pipeline should try the operation a third time, and so on.
 
         @param {PipelineOperation} op   The operation which failed.
         @param {Error} error            The error encountered by the operation.
-        @param {number} retry_count     Count of retries so far, including this one.  Set to 1 for the first retry.
+        @param {number} error_count     Count of retries so far, including this one.  Set to 1 for the first error.
         @returns {boolean}              Whether the operation should be retried or not.
         """
         pass
