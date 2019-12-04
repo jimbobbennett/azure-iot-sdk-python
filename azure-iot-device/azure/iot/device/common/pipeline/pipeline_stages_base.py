@@ -695,7 +695,7 @@ class RetryStage(PipelineStage):
         if error:
             op.retry_count += 1
             if self.pipeline_root.pipeline_configuration.retry_policy.should_retry(
-                error, op, retry_count
+                error, op, op.retry_count
             ):
                 return True
         return False
@@ -755,7 +755,7 @@ class ReconnectStage(PipelineStage):
 
     @pipeline_thread.runs_on_pipeline_thread
     def _execute_op(self, op):
-            self.send_op_down(op)
+        self.send_op_down(op)
 
     @pipeline_thread.runs_on_pipeline_thread
     def _set_reconnect_timer(self):
@@ -780,7 +780,7 @@ class ReconnectStage(PipelineStage):
                     inner_this = self_weakref()
                     if error:
                         # BKTODO: call _should_try_reconnecting
-                        if type(error) in transient_connect_errors:
+                        if self._should_try_reconnecting(error):
                             logger.debug(
                                 "{}: reconnect failed because {}.  Setting new timer.".format(
                                     inner_this.name, error
