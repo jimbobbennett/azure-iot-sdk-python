@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 reconnect_errors = [
     pipeline_exceptions.OperationCancelled,
     pipeline_exceptions.PipelineTimeoutError,
-    pipeline_exceptions.OperationError,
     transport_exceptions.ConnectionFailedError,
     transport_exceptions.ConnectionDroppedError,
 ]

@@ -751,7 +751,7 @@ class ReconnectStage(PipelineStage):
     def __init__(self):
         super(ReconnectStage, self).__init__()
         self.reconnect_timer = None
-        self.reconnect_count = 0
+        self.error_count = 0
 
     @pipeline_thread.runs_on_pipeline_thread
     def _execute_op(self, op):
@@ -773,6 +773,7 @@ class ReconnectStage(PipelineStage):
         """
 
         self._clear_reconnect_timer()
+        self.error_count += 1
 
         self_weakref = weakref.ref(self)
 
@@ -788,7 +789,7 @@ class ReconnectStage(PipelineStage):
                 def on_connect_complete(op, error):
                     inner_this = self_weakref()
                     if error:
-                        if self._should_try_reconnecting(error):
+                        if inner_this._should_try_reconnecting(error):
                             logger.debug(
                                 "{}: reconnect failed because {}.  Setting new timer.".format(
                                     inner_this.name, error
@@ -814,13 +815,16 @@ class ReconnectStage(PipelineStage):
                 )
 
         logger.info("{}: Setting reconnect timer".format(self.name))
-        self.reconnect_timer = Timer(self.reconnect_delay, on_reconnect_timer_expired)
+        reconnect_delay = self.pipeline_root.pipeline_configuration.reconnect_policy.get_next_redo_interval(
+            self.error_count
+        )
+        self.reconnect_timer = Timer(reconnect_delay, on_reconnect_timer_expired)
         self.reconnect_timer.start()
 
     @pipeline_thread.runs_on_pipeline_thread
     def _should_try_reconnecting(self, error):
         return self.pipeline_root.pipeline_configuration.reconnect_policy.should_redo(
-            error, None, self.reconnect_count + 1
+            None, error, self.error_count + 1
         )
 
     @pipeline_thread.runs_on_pipeline_thread
@@ -829,7 +833,6 @@ class ReconnectStage(PipelineStage):
         Clear any previous reconnect timer
         """
         logger.info("{}: Resetting reconnect count and clearing reconnect timer".format(self.name))
-        self.reconnect_count = 0
         if self.reconnect_timer:
             self.reconnect_timer.cancel()
             self.reconnect_timer = None
@@ -842,6 +845,7 @@ class ReconnectStage(PipelineStage):
         logger.debug("{}: on_connected".format(self.name))
 
         self._clear_reconnect_timer()
+        self.error_count = 0
 
         if self.previous:
             self.previous.on_connected()

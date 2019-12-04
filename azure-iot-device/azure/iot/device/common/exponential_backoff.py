@@ -62,7 +62,12 @@ class ExponentialBackoffWithJitter(AbstractRedoPolicy):
             )
 
     def should_redo(self, op, error, redo_count):
-        return (type(op) in self.redo_op_list) and (type(error) in self.redo_error_list)
+        # op and error can both be None.  Only check list membership if we have a value for these.
+        if op and type(op) not in self.redo_op_list:
+            return False
+        if error and type(error) not in self.redo_error_list:
+            return False
+        return True
 
 
 class DefaultExponentialBackoff(ExponentialBackoffWithJitter):
