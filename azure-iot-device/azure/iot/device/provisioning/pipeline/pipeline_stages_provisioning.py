@@ -121,120 +121,6 @@ class CommonProvisioningStage(PipelineStage):
         return registration_result
 
 
-class PollingStatusStage(CommonProvisioningStage):
-    """
-    This stage is responsible for sending the query request once initial response
-    is received from the registration response.
-    Upon the receipt of the response this stage decides whether
-    to send another query request or complete the procedure.
-    """
-
-    @pipeline_thread.runs_on_pipeline_thread
-    def _run_op(self, op):
-        if isinstance(op, pipeline_ops_provisioning.SendQueryRequestOperation):
-            query_status_op = op
-
-            def on_query_response(op, error):
-                query_request_op = op
-                logger.debug(
-                    "{stage_name}({op_name}): Received response with status code {status_code} for SendQueryRequestOperation with operation id {oper_id}".format(
-                        stage_name=self.name,
-                        op_name=op.name,
-                        status_code=query_request_op.status_code,
-                        oper_id=query_request_op.query_params["operation_id"],
-                    )
-                )
-
-                # This could be an error that has been reported to this stage Or this
-                # could be an error because the service responded with status code 300
-                error = self._get_error(query_request_op, QUERY, error=error)
-
-                if not error:
-                    success_status_code = query_request_op.status_code
-                    polling_interval = (
-                        int(query_request_op.retry_after, 10)
-                        if query_request_op.retry_after is not None
-                        else constant.DEFAULT_POLLING_INTERVAL
-                    )
-                    decoded_response = self._decode_response(query_request_op)
-                    operation_id = self._get_operation_id(decoded_response)
-                    registration_status = self._get_registration_status(decoded_response)
-
-                    # retry after or assigning scenario
-                    if success_status_code >= 429 or registration_status == "assigning":
-
-                        self_weakref = weakref.ref(self)
-
-                        @pipeline_thread.invoke_on_pipeline_thread_nowait
-                        def do_polling():
-                            this = self_weakref()
-                            logger.info(
-                                "{stage_name}({op_name}): retrying".format(
-                                    stage_name=this.name, op_name=op.name
-                                )
-                            )
-                            query_status_op.polling_timer.cancel()
-                            query_status_op.polling_timer = None
-                            query_status_op.completed = False
-                            this.run_op(query_status_op)
-
-                        logger.info(
-                            "{stage_name}({op_name}): Op needs retry with interval {interval} because of {error}. Setting timer.".format(
-                                stage_name=self.name,
-                                op_name=op.name,
-                                interval=polling_interval,
-                                error=error,
-                            )
-                        )
-
-                        query_status_op.polling_timer = Timer(polling_interval, do_polling)
-                        query_status_op.polling_timer.start()
-
-                    # Service success scenario
-                    else:
-                        registration_status = self._get_registration_status(decoded_response)
-                        if registration_status == "assigned" or registration_status == "failed":
-                            # process complete response here
-                            complete_registration_result = self._form_complete_result(
-                                operation_id=operation_id,
-                                decoded_response=decoded_response,
-                                status=registration_status,
-                            )
-                            query_status_op.registration_result = complete_registration_result
-
-                            if registration_status == "failed":
-                                error = exceptions.ServiceError(
-                                    "Query Status operation returned a failed registration status  with a status code of {status_code}".format(
-                                        status_code=success_status_code
-                                    )
-                                )
-                        else:
-                            error = exceptions.ServiceError(
-                                "Query Status Operation encountered an invalid registration status {status} with a status code of {status_code}".format(
-                                    status=registration_status, status_code=success_status_code
-                                )
-                            )
-
-                        query_status_op.complete(error=error)
-
-                else:
-                    query_status_op.complete(error=error)
-
-            self.send_op_down(
-                pipeline_ops_base.RequestAndResponseOperation(
-                    request_type=constant.QUERY,
-                    method="GET",
-                    resource_location="/",
-                    query_params={"operation_id": op.operation_id},
-                    request_body=op.request_payload,
-                    callback=on_query_response,
-                )
-            )
-
-        else:
-            super(PollingStatusStage, self)._run_op(op)
-
-
 class RegistrationStage(CommonProvisioningStage):
     """
     This is the first stage that decides converts a registration request
@@ -367,6 +253,120 @@ class RegistrationStage(CommonProvisioningStage):
 
         else:
             super(RegistrationStage, self)._run_op(operation)
+
+
+class PollingStatusStage(CommonProvisioningStage):
+    """
+    This stage is responsible for sending the query request once initial response
+    is received from the registration response.
+    Upon the receipt of the response this stage decides whether
+    to send another query request or complete the procedure.
+    """
+
+    @pipeline_thread.runs_on_pipeline_thread
+    def _run_op(self, op):
+        if isinstance(op, pipeline_ops_provisioning.SendQueryRequestOperation):
+            query_status_op = op
+
+            def on_query_response(op, error):
+                query_request_op = op
+                logger.debug(
+                    "{stage_name}({op_name}): Received response with status code {status_code} for SendQueryRequestOperation with operation id {oper_id}".format(
+                        stage_name=self.name,
+                        op_name=op.name,
+                        status_code=query_request_op.status_code,
+                        oper_id=query_request_op.query_params["operation_id"],
+                    )
+                )
+
+                # This could be an error that has been reported to this stage Or this
+                # could be an error because the service responded with status code 300
+                error = self._get_error(query_request_op, QUERY, error=error)
+
+                if not error:
+                    success_status_code = query_request_op.status_code
+                    polling_interval = (
+                        int(query_request_op.retry_after, 10)
+                        if query_request_op.retry_after is not None
+                        else constant.DEFAULT_POLLING_INTERVAL
+                    )
+                    decoded_response = self._decode_response(query_request_op)
+                    operation_id = self._get_operation_id(decoded_response)
+                    registration_status = self._get_registration_status(decoded_response)
+
+                    # retry after or assigning scenario
+                    if success_status_code >= 429 or registration_status == "assigning":
+
+                        self_weakref = weakref.ref(self)
+
+                        @pipeline_thread.invoke_on_pipeline_thread_nowait
+                        def do_polling():
+                            this = self_weakref()
+                            logger.info(
+                                "{stage_name}({op_name}): retrying".format(
+                                    stage_name=this.name, op_name=op.name
+                                )
+                            )
+                            query_status_op.polling_timer.cancel()
+                            query_status_op.polling_timer = None
+                            query_status_op.completed = False
+                            this.run_op(query_status_op)
+
+                        logger.info(
+                            "{stage_name}({op_name}): Op needs retry with interval {interval} because of {error}. Setting timer.".format(
+                                stage_name=self.name,
+                                op_name=op.name,
+                                interval=polling_interval,
+                                error=error,
+                            )
+                        )
+
+                        query_status_op.polling_timer = Timer(polling_interval, do_polling)
+                        query_status_op.polling_timer.start()
+
+                    # Service success scenario
+                    else:
+                        registration_status = self._get_registration_status(decoded_response)
+                        if registration_status == "assigned" or registration_status == "failed":
+                            # process complete response here
+                            complete_registration_result = self._form_complete_result(
+                                operation_id=operation_id,
+                                decoded_response=decoded_response,
+                                status=registration_status,
+                            )
+                            query_status_op.registration_result = complete_registration_result
+
+                            if registration_status == "failed":
+                                error = exceptions.ServiceError(
+                                    "Query Status operation returned a failed registration status  with a status code of {status_code}".format(
+                                        status_code=success_status_code
+                                    )
+                                )
+                        else:
+                            error = exceptions.ServiceError(
+                                "Query Status Operation encountered an invalid registration status {status} with a status code of {status_code}".format(
+                                    status=registration_status, status_code=success_status_code
+                                )
+                            )
+
+                        query_status_op.complete(error=error)
+
+                else:
+                    query_status_op.complete(error=error)
+
+            self.send_op_down(
+                pipeline_ops_base.RequestAndResponseOperation(
+                    request_type=constant.QUERY,
+                    method="GET",
+                    resource_location="/",
+                    query_params={"operation_id": op.operation_id},
+                    request_body=op.request_payload,
+                    callback=on_query_response,
+                )
+            )
+
+        else:
+            super(PollingStatusStage, self)._run_op(op)
 
 
 class DeviceRegistrationPayload(object):
