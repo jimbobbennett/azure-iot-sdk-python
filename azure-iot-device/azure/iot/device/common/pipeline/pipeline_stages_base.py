@@ -360,56 +360,7 @@ class AutoConnectStage(PipelineStage):
         self.send_op_down(pipeline_ops_base.ConnectOperation(callback=on_connect_op_complete))
 
 
-class BlockingStage(PipelineStage):
-    def __init__(self):
-        super(BlockingStage, self).__init__()
-        self.queue = queue.Queue()
-        self.blocked = False
-
-    @pipeline_thread.runs_on_pipeline_thread
-    def _block(self, op):
-        """
-        block this stage while, maybe because we're waiting for some operation to complete
-        """
-        logger.debug("{}({}): blocking".format(self.name, op.name))
-        self.blocked = True
-
-    @pipeline_thread.runs_on_pipeline_thread
-    def _add_op_to_queue(self, op):
-        self.queue.put_nowait(op)
-
-    @pipeline_thread.runs_on_pipeline_thread
-    def _unblock(self, error):
-        """
-        Unblock this stage and release all the operations that were queued up.
-        """
-        logger.debug("{}: unblocking and releasing queued ops.".format(self.name))
-        self.blocked = False
-        logger.info("{}: processing {} items in queue".format(self.name, self.queue.qsize()))
-        # Loop through our queue and release all the blocked operations
-        # Put a new Queue in self.queue because releasing ops might put them back in the
-        # queue, especially if there's a ConnectOperation in the list of ops to release
-        old_queue = self.queue
-        self.queue = queue.Queue()
-        while not old_queue.empty():
-            op_to_release = old_queue.get_nowait()
-            if error:
-                # if we're unblocking the queue because something (like a connect operation) failed,
-                # then we fail all of the blocked operations with the same error.
-                logger.error(
-                    "{}: failing {} op because of error".format(self.name, op_to_release.name)
-                )
-                op_to_release.complete(error=error)
-            else:
-                logger.debug("{}: releasing {} op.".format(self.name, op_to_release.name))
-                # Call run_op directly here so operations go through this stage again
-                # It's critical that it calls run_op intead of send_op_down because this
-                # stage may already be blocked _again_ because of some op that was released
-                # before this one.
-                self.run_op(op_to_release)
-
-
-class ConnectionLockStage(BlockingStage):
+class ConnectionLockStage(PipelineStage):
     """
     This stage is responsible for serializing connect, disconnect, and reauthorize ops on
     the pipeline, such that only a single one of these ops can go past this stage at a
@@ -417,6 +368,11 @@ class ConnectionLockStage(BlockingStage):
     disconnect if we're in the middle of reauthorizing."  This stage will wait for the
     reauthorize to complete before letting the disconnect past.
     """
+
+    def __init__(self):
+        super(ConnectionLockStage, self).__init__()
+        self.queue = queue.Queue()
+        self.blocked = False
 
     @pipeline_thread.runs_on_pipeline_thread
     def _execute_op(self, op):
@@ -428,7 +384,7 @@ class ConnectionLockStage(BlockingStage):
                     self.name, op.name
                 )
             )
-            self._add_op_to_queue(op)
+            self.queue.put_nowait(op)
 
         elif isinstance(op, pipeline_ops_base.ConnectOperation) and self.pipeline_root.connected:
             logger.info("{}({}): Transport is connected.  Completing.".format(self.name, op.name))
@@ -463,7 +419,7 @@ class ConnectionLockStage(BlockingStage):
                         "{}({}): op succeeded.  Unblocking queue".format(self.name, op.name)
                     )
 
-                self._unblock(error)
+                self._unblock(op, error)
                 logger.debug(
                     "{}({}): unblock is complete.  completing op that caused unblock".format(
                         self.name, op.name
@@ -475,6 +431,48 @@ class ConnectionLockStage(BlockingStage):
 
         else:
             self.send_op_down(op)
+
+    @pipeline_thread.runs_on_pipeline_thread
+    def _block(self, op):
+        """
+        block this stage while we're waiting for the connect/disconnect/reauthorize operation to complete.
+        """
+        logger.debug("{}({}): blocking".format(self.name, op.name))
+        self.blocked = True
+
+    @pipeline_thread.runs_on_pipeline_thread
+    def _unblock(self, op, error):
+        """
+        Unblock this stage after the connect/disconnect/reauthorize operation is complete.  This also means
+        releasing all the operations that were queued up.
+        """
+        logger.debug("{}({}): unblocking and releasing queued ops.".format(self.name, op.name))
+        self.blocked = False
+        logger.info(
+            "{}({}): processing {} items in queue".format(self.name, op.name, self.queue.qsize())
+        )
+        # Loop through our queue and release all the blocked operations
+        # Put a new Queue in self.queue because releasing ops might put them back in the
+        # queue, especially if there's a ConnectOperation in the list of ops to release
+        old_queue = self.queue
+        self.queue = queue.Queue()
+        while not old_queue.empty():
+            op_to_release = old_queue.get_nowait()
+            if error:
+                # if we're unblocking the queue because something (like a connect operation) failed,
+                # then we fail all of the blocked operations with the same error.
+                logger.error(
+                    "{}({}): failing {} op because of error".format(
+                        self.name, op.name, op_to_release.name
+                    )
+                )
+                op_to_release.complete(error=error)
+            else:
+                logger.debug(
+                    "{}({}): releasing {} op.".format(self.name, op.name, op_to_release.name)
+                )
+                # call run_op directly here so operations go through this stage again (especiall connect/disconnect ops)
+                self.run_op(op_to_release)
 
 
 class CoordinateRequestAndResponseStage(PipelineStage):

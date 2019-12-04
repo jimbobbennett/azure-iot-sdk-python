@@ -84,13 +84,11 @@ def _add_unknown_ops_tests(cls, module, all_ops, handled_ops):
             return op
 
         @pytest.fixture
-        def stage(self, mocker):
+        def stage(self):
             if cls == PipelineRootStage:
                 return cls(None)
             else:
-                stage = cls()
-                stage.pipeline_root = mocker.MagicMock()
-                return stage
+                return cls()
 
         @pytest.mark.it("Passes unknown operation down to the next stage")
         def test_passes_op_to_next_stage(self, mocker, op, stage):
