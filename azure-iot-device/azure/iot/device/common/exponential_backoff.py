@@ -31,8 +31,8 @@ class ExponentialBackoffWithJitter(AbstractRetryPolicy):
 
     def __init__(
         self,
-        retry_error_list,
         retry_op_list,
+        retry_error_list,
         immediate_first_retry,
         backoff_interval,
         minimum_interval_between_retries,
@@ -75,8 +75,9 @@ class DefaultExponentialBackoff(ExponentialBackoffWithJitter):
     Jitter down factor (Jd). 0.5 by default
     """
 
-    def __init__(self, retry_error_list):
+    def __init__(self, retry_op_list, retry_error_list):
         super(DefaultExponentialBackoff, self).__init__(
+            retry_op_list=retry_op_list,
             retry_error_list=retry_error_list,
             immediate_first_retry=True,
             backoff_interval=0.1,
