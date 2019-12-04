@@ -369,7 +369,7 @@ class BlockingStage(PipelineStage):
     @pipeline_thread.runs_on_pipeline_thread
     def _block(self, op):
         """
-        block this stage while we're waiting for the connect/disconnect/reconnect operation to complete.
+        block this stage while, maybe because we're waiting for some operation to complete
         """
         logger.debug("{}({}): blocking".format(self.name, op.name))
         self.blocked = True
@@ -695,7 +695,7 @@ class RetryStage(PipelineStage):
         if error:
             op.retry_count += 1
             if self.pipeline_root.pipeline_configuration.retry_policy.should_retry(
-                error, op.retry_count
+                error, op, retry_count
             ):
                 return True
         return False
@@ -747,7 +747,7 @@ class RetryStage(PipelineStage):
                 op.retry_timer = None
 
 
-class ReconnectStage(BlockingStage):
+class ReconnectStage(PipelineStage):
     def __init__(self):
         super(ReconnectStage, self).__init__()
         self.reconnect_timer = None
@@ -755,30 +755,16 @@ class ReconnectStage(BlockingStage):
 
     @pipeline_thread.runs_on_pipeline_thread
     def _execute_op(self, op):
-        if self.blocked:
-            self._add_op_to_queue(op)
-        else:
-            if isinstance(op, pipeline_ops_base.ConnectOperation):
-                self.pipeline_root.virtually_connected = True
-            elif isinstance(op, pipeline_ops_base.DisconnectOperation):
-                self.pipeline_root.virtually_connected = False
-
-            op.add_callback(self._requeue_on_connection_failure)
             self.send_op_down(op)
 
     @pipeline_thread.runs_on_pipeline_thread
-    def _requeue_on_connection_failure(self, op, error):
-        if error and self._should_try_reconnecting(error):
-            self._block()
-            op.half_completion()
-            self._add_op_to_queue(op)
-            self._ensure_future_reconnection()
-
-    @pipeline_thread.runs_on_pipeline_thread
-    def _ensure_future_reconnection(self):
+    def _set_reconnect_timer(self):
         """
         Set a timer to reconnect after some period of time
         """
+
+        self._clear_reconnect_timer()
+
         self_weakref = weakref.ref(self)
 
         @pipeline_thread.invoke_on_pipeline_thread_nowait
@@ -790,10 +776,28 @@ class ReconnectStage(BlockingStage):
                     "{}: reconnect timer expired.  Sending connect op down".format(this.name)
                 )
 
+                def on_connect_complete(op, error):
+                    inner_this = self_weakref()
+                    if error:
+                        # BKTODO: call _should_try_reconnecting
+                        if type(error) in transient_connect_errors:
+                            logger.debug(
+                                "{}: reconnect failed because {}.  Setting new timer.".format(
+                                    inner_this.name, error
+                                )
+                            )
+                            inner_this._set_reconnect_timer()
+                        else:
+                            logger.debug(
+                                "{}: reconnect failed because {}.  Not setting new timer.".format(
+                                    inner_this.name, error
+                                )
+                            )
+                    else:
+                        logger.debug("{}: reconnect successful".format(inner_this.name))
+
                 logger.debug("{}: Sending connect operation down".format(this.name))
-                this.send_op_down(
-                    pipeline_ops_base.ConnectOperation(this._on_reconnect_op_complete)
-                )
+                this.send_op_down(pipeline_ops_base.ConnectOperation(on_connect_complete))
             else:
                 logger.debug(
                     "{}: retry timer expired, but client is connected.  Doing nothing".format(
@@ -801,40 +805,15 @@ class ReconnectStage(BlockingStage):
                     )
                 )
 
-        if not self.reconnect_timer:
-            logger.info("{}: Setting reconnect timer".format(self.name))
-            self.reconnect_count += 1
-            reconnect_interval = self.pipeline_root.pipeline_configuration.reconnect_policy.get_next_retry_interval(
-                self.reconnect_count
-            )
-            self.reconnect_timer = Timer(reconnect_interval, on_reconnect_timer_expired)
-            self.reconnect_timer.start()
+        logger.info("{}: Setting reconnect timer".format(self.name))
+        self.reconnect_timer = Timer(self.reconnect_delay, on_reconnect_timer_expired)
+        self.reconnect_timer.start()
 
     @pipeline_thread.runs_on_pipeline_thread
     def _should_try_reconnecting(self, error):
         return self.pipeline_root.pipeline_configuration.reconnect_policy.should_retry(
-            error, self.reconnect_count + 1
+            error, None, self.reconnect_count + 1
         )
-
-    @pipeline_thread.runs_on_pipeline_thread
-    def _on_reconnect_op_complete(self, op, error):
-        if error:
-            if self._should_try_reconnecting(error):
-                logger.debug(
-                    "{}: reconnect failed because {}.  Ensuring reconnect timer.".format(
-                        self.name, error
-                    )
-                )
-                self._ensure_future_reconnection()
-            else:
-                logger.debug(
-                    "{}: reconnect failed because {}.  Not setting new timer.".format(
-                        self.name, error
-                    )
-                )
-        else:
-            logger.debug("{}: reconnect successful".format(self.name))
-            # No need to unblock the queue.  That happens inside on_connected.
 
     @pipeline_thread.runs_on_pipeline_thread
     def _clear_reconnect_timer(self):
@@ -842,7 +821,7 @@ class ReconnectStage(BlockingStage):
         Clear any previous reconnect timer
         """
         logger.info("{}: Resetting reconnect count and clearing reconnect timer".format(self.name))
-        self.retry_count = 0
+        self.reconnect_count = 0
         if self.reconnect_timer:
             self.reconnect_timer.cancel()
             self.reconnect_timer = None
@@ -858,8 +837,6 @@ class ReconnectStage(BlockingStage):
 
         if self.previous:
             self.previous.on_connected()
-
-        self._unblock(None)
 
     @pipeline_thread.runs_on_pipeline_thread
     def on_disconnected(self):
