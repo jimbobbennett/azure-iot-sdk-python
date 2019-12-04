@@ -788,7 +788,6 @@ class ReconnectStage(PipelineStage):
                 def on_connect_complete(op, error):
                     inner_this = self_weakref()
                     if error:
-                        # BKTODO: call _should_try_reconnecting
                         if self._should_try_reconnecting(error):
                             logger.debug(
                                 "{}: reconnect failed because {}.  Setting new timer.".format(
@@ -860,7 +859,7 @@ class ReconnectStage(PipelineStage):
                         self.name
                     )
                 )
-                self._ensure_future_reconnection()
+                self._set_reconnect_timer()
             else:
                 logger.info(
                     "{}: disconnected, but not virtually connected.  Not triggering reconnect timer.".format(
