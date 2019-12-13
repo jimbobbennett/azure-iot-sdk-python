@@ -28,13 +28,19 @@ async def wait_for_completion(callback):
     try:
         return await callback.completion()
     except pipeline_exceptions.ConnectionDroppedError as e:
-        raise exceptions.ConnectionDroppedError(message="Lost connection to IoTHub", cause=e)
+        raise exceptions.ConnectionDroppedError(
+            message="Lost connection to Provisioning Service", cause=e
+        )
     except pipeline_exceptions.ConnectionFailedError as e:
-        raise exceptions.ConnectionFailedError(message="Could not connect to IoTHub", cause=e)
+        raise exceptions.ConnectionFailedError(
+            message="Could not connect to Provisioning Service", cause=e
+        )
     except pipeline_exceptions.UnauthorizedError as e:
         raise exceptions.CredentialError(message="Credentials invalid, could not connect", cause=e)
     except pipeline_exceptions.ProtocolClientError as e:
-        raise exceptions.ClientError(message="Error in the IoTHub client", cause=e)
+        raise exceptions.ClientError(message="Error in the Provisioning client", cause=e)
+    except exceptions.ServiceError as e:
+        raise exceptions.ClientError(message="Service Error in Provisioning", cause=e)
     except Exception as e:
         raise exceptions.ClientError(message="Unexpected failure", cause=e)
 

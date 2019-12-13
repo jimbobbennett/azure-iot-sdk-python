@@ -40,7 +40,7 @@ class ProvisioningPipeline(object):
             .append_stage(pipeline_stages_provisioning.RegistrationStage())
             .append_stage(pipeline_stages_provisioning.PollingStatusStage())
             .append_stage(pipeline_stages_base.CoordinateRequestAndResponseStage())
-            # TODO Add time out stage here
+            .append_stage(pipeline_stages_provisioning.ProvisioningTimeoutStage())
             .append_stage(pipeline_stages_provisioning_mqtt.ProvisioningMQTTTranslationStage())
             .append_stage(pipeline_stages_base.AutoConnectStage())
             .append_stage(pipeline_stages_base.ConnectionLockStage())

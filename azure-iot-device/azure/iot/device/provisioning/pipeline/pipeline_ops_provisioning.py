@@ -128,7 +128,6 @@ class SendQueryRequestOperation(PipelineOperation):
         """
         Initializer for SendRegistrationRequestOperation objects.
 
-        :param request_id
         :param request_payload: The request that we are sending to the service
         :param Function callback: The function that gets called when this operation is complete or has failed.
          The callback function must accept A PipelineOperation object which indicates the specific operation which
