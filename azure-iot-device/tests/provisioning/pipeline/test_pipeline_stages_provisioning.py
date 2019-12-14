@@ -15,7 +15,7 @@ from azure.iot.device.provisioning.pipeline import (
     pipeline_ops_provisioning,
 )
 from azure.iot.device.common.pipeline import pipeline_ops_base
-
+from azure.iot.device.common.pipeline import pipeline_ops_mqtt
 from tests.common.pipeline.helpers import (
     assert_callback_succeeded,
     assert_callback_failed,
@@ -35,7 +35,7 @@ from azure.iot.device.provisioning.models.registration_result import (
     RegistrationState,
 )
 from azure.iot.device import exceptions
-
+from azure.iot.device.provisioning.pipeline import constant
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -665,3 +665,112 @@ class TestPollingStatusStageWithSendQueryRequestOperation(StageTestBase):
         # We can only assert instance other wise we need to assert the exact text
         assert isinstance(op.complete.call_args[1]["error"], exceptions.ServiceError)
         assert "invalid registration status" in str(op.complete.call_args[1]["error"])
+
+
+@pytest.mark.describe("ProvisioningTimeoutStage - run_op()")
+class TestProvisioningTimeoutStage(StageTestBase):
+
+    yes_timeout_ops = [{"type": "register", "method": "PUT"}, {"type": "query", "method": "GET"}]
+
+    non_timeout_provisioning_ops = [
+        {
+            "op_class": pipeline_ops_provisioning.SendRegistrationRequestOperation,
+            "op_init_kwargs": {"request_payload": " ", "registration_id": fake_registration_id},
+        },
+        {
+            "op_class": pipeline_ops_provisioning.SendQueryRequestOperation,
+            "op_init_kwargs": {"request_payload": " ", "operation_id": fake_operation_id},
+        },
+    ]
+
+    @pytest.fixture(params=yes_timeout_ops)
+    def yes_timeout_op(self, request, mocker):
+        op = pipeline_ops_base.RequestOperation(
+            request_type=request.param["type"],
+            method=request.param["method"],
+            resource_location="/",
+            request_body=" ",
+            request_id=fake_request_id,
+            callback=mocker.MagicMock(),
+        )
+        mocker.spy(op, "complete")
+        return op
+
+    @pytest.fixture(params=non_timeout_provisioning_ops)
+    def no_timeout_op(self, request, mocker):
+        op = request.param["op_class"](**request.param["op_init_kwargs"])
+        mocker.spy(op, "complete")
+        return op
+
+    @pytest.fixture
+    def stage(self):
+        return pipeline_stages_provisioning.ProvisioningTimeoutStage()
+
+    @pytest.fixture()
+    def mock_timer(self, mocker):
+        return mocker.patch(
+            "azure.iot.device.provisioning.pipeline.pipeline_stages_provisioning.Timer",
+            autospec=True,
+        )
+
+    @pytest.mark.it("Sends the request op after attaching a timer to the next stage")
+    def test_sends_request_op_down_after_attaching_timer(self, stage, mock_timer, yes_timeout_op):
+        stage.run_op(yes_timeout_op)
+        assert stage.next.run_op.call_count == 1
+        assert stage.next.run_op.call_args[0][0] == yes_timeout_op
+
+    @pytest.mark.it("Sends any other ops that don't need a timer to the next stage")
+    def test_sends_other_ops_down_without_attaching_timer(self, stage, mock_timer, no_timeout_op):
+        stage.run_op(no_timeout_op)
+        assert stage.next.run_op.call_count == 1
+        assert stage.next.run_op.call_args[0][0] == no_timeout_op
+
+    @pytest.mark.it("Does not set a timer for other ops that don't need a timer set")
+    def test_does_not_attach_timer_to_some_ops(self, stage, mock_timer, no_timeout_op):
+        stage.run_op(no_timeout_op)
+        assert mock_timer.call_count == 0
+
+    @pytest.mark.it("Set a timer for request ops that need a timer set")
+    def test_attaches_timer_to_request_ops(self, stage, mock_timer, yes_timeout_op):
+        stage.run_op(yes_timeout_op)
+        assert mock_timer.call_count == 1
+
+    @pytest.mark.it("Starts the timer based on the timeout interval defined for provisioning")
+    def test_uses_timeout_interval(self, stage, mock_timer, yes_timeout_op):
+        stage.run_op(yes_timeout_op)
+        assert mock_timer.call_args[0][0] == constant.DEFAULT_TIMEOUT_INTERVAL
+        assert mock_timer.return_value.start.call_count == 1
+        assert yes_timeout_op.timeout_timer == mock_timer.return_value
+
+    @pytest.mark.it("Clears the timer when the op completes successfully")
+    def test_clears_timer_on_success(self, stage, mock_timer, yes_timeout_op):
+        stage.run_op(yes_timeout_op)
+        yes_timeout_op.complete()
+        assert mock_timer.return_value.cancel.call_count == 1
+        assert getattr(yes_timeout_op, "timeout_timer", None) is None
+
+    @pytest.mark.it("Clears the timer when the op fails with an arbitrary exception")
+    def test_clears_timer_on_arbitrary_exception(
+        self, stage, mock_timer, yes_timeout_op, arbitrary_exception
+    ):
+        stage.run_op(yes_timeout_op)
+        yes_timeout_op.complete(error=arbitrary_exception)
+        assert mock_timer.return_value.cancel.call_count == 1
+        assert getattr(yes_timeout_op, "timeout_timer", None) is None
+
+    @pytest.mark.it("Clears the timer when the op times out")
+    def test_clears_timer_on_timeout(self, stage, mock_timer, yes_timeout_op):
+        stage.run_op(yes_timeout_op)
+        assert yes_timeout_op.timeout_timer == mock_timer.return_value
+        timer_callback = mock_timer.call_args[0][1]
+        timer_callback()
+        assert getattr(yes_timeout_op, "timeout_timer", None) is None
+
+    @pytest.mark.it("Completes the operation with a ServiceError when the op times out")
+    def test_calls_callback_on_timeout(self, mocker, stage, mock_timer, yes_timeout_op):
+        stage.run_op(yes_timeout_op)
+        timer_callback = mock_timer.call_args[0][1]
+        timer_callback()
+        assert yes_timeout_op.complete.call_count == 1
+        assert type(yes_timeout_op.complete.call_args[1]["error"]) is exceptions.ServiceError
+        yes_timeout_op.request_type in yes_timeout_op.complete.call_args[1]["error"].args[0]
