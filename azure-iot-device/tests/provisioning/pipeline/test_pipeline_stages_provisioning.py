@@ -163,6 +163,11 @@ def get_registration_result_as_bytes(registration_result):
 ###################
 
 
+@pytest.fixture
+def mock_timer(mocker):
+    return mocker.patch.object(threading, "Timer")
+
+
 @pytest.fixture(params=[True, False], ids=["With error", "No error"])
 def op_error(request, arbitrary_exception):
     if request.param:
@@ -374,7 +379,7 @@ class TestRegistrationStageWithRegisterOperation(StageRunOpTestBase, Registratio
     @pytest.mark.it(
         "Sends a new RequestAndResponseOperation down the pipeline, configured to request a registration from provisioning service"
     )
-    def test_request_and_response_op(self, stage, op, request_body):
+    def test_request_and_response_op(self, stage, op, request_body, mock_timer):
         stage.run_op(op)
 
         assert stage.send_op_down.call_count == 1
@@ -591,12 +596,14 @@ class TestRegistrationStageWithRegisterOperationCompleted(RegistrationStageConfi
         "Decodes, deserializes the response from RequestAndResponseOperation and creates another op if the status code < 300 and if status is 'assigning'"
     )
     def test_spawns_another_op_request_and_response_op_completed_success_with_status_assigning(
-        self, mocker, stage, request_payload, send_registration_op, request_and_response_op
+        self,
+        mocker,
+        stage,
+        request_payload,
+        send_registration_op,
+        request_and_response_op,
+        mock_timer,
     ):
-        mock_timer = mocker.patch(
-            "azure.iot.device.provisioning.pipeline.pipeline_stages_provisioning.Timer"
-        )
-
         mocker.spy(send_registration_op, "spawn_worker_op")
         registration_result = create_registration_result(request_payload, "assigning")
 
@@ -664,12 +671,8 @@ class TestRegistrationStageWithRetryOfRegisterOperation(RetryStageConfig):
         "Decodes, deserializes the response from RequestAndResponseOperation and retries the op if the status code > 429"
     )
     def test_stage_retries_op_if_next_stage_responds_with_status_code_greater_than_429(
-        self, mocker, stage, op, request_body, request_payload
+        self, mocker, stage, op, request_body, request_payload, mock_timer
     ):
-        mock_timer = mocker.patch(
-            "azure.iot.device.provisioning.pipeline.pipeline_stages_provisioning.Timer"
-        )
-
         stage.run_op(op)
         assert stage.send_op_down.call_count == 1
         next_op = stage.send_op_down.call_args[0][0]
@@ -709,12 +712,6 @@ class TestRegistrationStageWithTimeoutOfRegisterOperation(
             " ", fake_registration_id, callback=mocker.MagicMock()
         )
         return op
-
-    @pytest.fixture
-    def mock_timer(self, mocker):
-        return mocker.patch(
-            "azure.iot.device.provisioning.pipeline.pipeline_stages_provisioning.Timer"
-        )
 
     @pytest.mark.it(
         "Adds a provisioning timeout timer with the interval specified in the configuration to the operation, and starts it"
@@ -815,7 +812,7 @@ class TestPollingStatusStageWithPollStatusOperation(StageRunOpTestBase, PollingS
     @pytest.mark.it(
         "Sends a new RequestAndResponseOperation down the pipeline, configured to request a registration from provisioning service"
     )
-    def test_request_and_response_op(self, stage, op):
+    def test_request_and_response_op(self, stage, op, mock_timer):
         stage.run_op(op)
 
         assert stage.send_op_down.call_count == 1
@@ -1036,12 +1033,8 @@ class TestPollingStatusStageWithPollStatusRetryOperation(RetryStageConfig):
         "Decodes, deserializes the response from RequestAndResponseOperation and retries the op if the status code > 429"
     )
     def test_stage_retries_op_if_next_stage_responds_with_status_code_greater_than_429(
-        self, mocker, stage, op
+        self, mocker, stage, op, mock_timer
     ):
-        mock_timer = mocker.patch(
-            "azure.iot.device.provisioning.pipeline.pipeline_stages_provisioning.Timer"
-        )
-
         stage.run_op(op)
         assert stage.send_op_down.call_count == 1
         next_op = stage.send_op_down.call_args[0][0]
@@ -1071,11 +1064,9 @@ class TestPollingStatusStageWithPollStatusRetryOperation(RetryStageConfig):
     @pytest.mark.it(
         "Decodes, deserializes the response from RequestAndResponseOperation and retries the op if the status code < 300 and if status is 'assigning'"
     )
-    def test_stage_retries_op_if_next_stage_responds_with_status_assigning(self, mocker, stage, op):
-        mock_timer = mocker.patch(
-            "azure.iot.device.provisioning.pipeline.pipeline_stages_provisioning.Timer"
-        )
-
+    def test_stage_retries_op_if_next_stage_responds_with_status_assigning(
+        self, mocker, stage, op, mock_timer
+    ):
         stage.run_op(op)
         assert stage.send_op_down.call_count == 1
         next_op = stage.send_op_down.call_args[0][0]
@@ -1113,12 +1104,6 @@ class TestPollingStageWithTimeoutOfQueryOperation(StageRunOpTestBase, PollingSta
             fake_operation_id, " ", callback=mocker.MagicMock()
         )
         return op
-
-    @pytest.fixture
-    def mock_timer(self, mocker):
-        return mocker.patch(
-            "azure.iot.device.provisioning.pipeline.pipeline_stages_provisioning.Timer"
-        )
 
     @pytest.mark.it(
         "Adds a provisioning timeout timer with the interval specified in the configuration to the operation, and starts it"

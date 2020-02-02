@@ -16,7 +16,7 @@ from azure.iot.device.provisioning.models.registration_result import (
 import logging
 import weakref
 import json
-from threading import Timer
+import threading
 import time
 from .mqtt_topic import get_optional_element
 
@@ -171,7 +171,7 @@ class CommonProvisioningStage(PipelineStage):
         )
 
         logger.debug("{}({}): Creating retry timer".format(self.name, request_response_op.name))
-        original_provisioning_op.retry_after_timer = Timer(retry_interval, do_retry_after)
+        original_provisioning_op.retry_after_timer = threading.Timer(retry_interval, do_retry_after)
         original_provisioning_op.retry_after_timer.start()
 
     @staticmethod
@@ -240,7 +240,7 @@ class PollingStatusStage(CommonProvisioningStage):
                 )
 
             logger.debug("{}({}): Creating provisioning timeout timer".format(self.name, op.name))
-            query_status_op.provisioning_timeout_timer = Timer(
+            query_status_op.provisioning_timeout_timer = threading.Timer(
                 constant.DEFAULT_TIMEOUT_INTERVAL, query_timeout
             )
             query_status_op.provisioning_timeout_timer.start()
@@ -308,7 +308,9 @@ class PollingStatusStage(CommonProvisioningStage):
                             logger.debug(
                                 "{}({}): Creating polling timer".format(self.name, op.name)
                             )
-                            query_status_op.polling_timer = Timer(polling_interval, do_polling)
+                            query_status_op.polling_timer = threading.Timer(
+                                polling_interval, do_polling
+                            )
                             query_status_op.polling_timer.start()
 
                         elif registration_status == "assigned" or registration_status == "failed":
@@ -378,7 +380,7 @@ class RegistrationStage(CommonProvisioningStage):
                 )
 
             logger.debug("{}({}): Creating provisioning timeout timer".format(self.name, op.name))
-            initial_register_op.provisioning_timeout_timer = Timer(
+            initial_register_op.provisioning_timeout_timer = threading.Timer(
                 constant.DEFAULT_TIMEOUT_INTERVAL, register_timeout
             )
             initial_register_op.provisioning_timeout_timer.start()
@@ -453,7 +455,7 @@ class RegistrationStage(CommonProvisioningStage):
                             logger.debug(
                                 "{}({}): Creating polling timer".format(self.name, op.name)
                             )
-                            initial_register_op.polling_timer = Timer(
+                            initial_register_op.polling_timer = threading.Timer(
                                 constant.DEFAULT_POLLING_INTERVAL, do_query_after_interval
                             )
                             initial_register_op.polling_timer.start()
