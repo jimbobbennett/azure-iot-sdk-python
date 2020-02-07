@@ -30,7 +30,13 @@ logger = logging.getLogger(__name__)
 def _validate_kwargs(**kwargs):
     """Helper function to validate user provided kwargs.
     Raises TypeError if an invalid option has been provided"""
-    valid_kwargs = ["product_info", "websockets", "cipher", "server_verification_cert"]
+    valid_kwargs = [
+        "product_info",
+        "websockets",
+        "cipher",
+        "server_verification_cert",
+        "proxy_options",
+    ]
 
     for kwarg in kwargs:
         if kwarg not in valid_kwargs:
@@ -81,6 +87,8 @@ class AbstractIoTHubClient(object):
         :type cipher: str or list(str)
         :param str product_info: Configuration Option. Default is empty string. The string contains
             arbitrary product info which is appended to the user agent string.
+        :param proxy_options: Options for sending traffic through proxy servers.
+        :type ProxyOptions: :class:`azure.iot.device.common.proxy_options`
 
         :raises: ValueError if given an invalid connection_string.
         :raises: TypeError if given an unrecognized parameter.
