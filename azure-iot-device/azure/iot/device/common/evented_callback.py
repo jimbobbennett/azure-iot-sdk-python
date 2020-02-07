@@ -6,6 +6,7 @@
 import threading
 import logging
 import six
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,8 @@ class EventedCallback(object):
                     )
 
             if self.exception:
-                logger.error(
-                    "Callback completed with error {}".format(self.exception),
-                    exc_info=self.exception,
-                )
+                logger.error("Callback completed with error {}".format(self.exception))
+                logger.error(traceback.format_exc())
             else:
                 logger.debug("Callback completed with result {}".format(self.result))
 

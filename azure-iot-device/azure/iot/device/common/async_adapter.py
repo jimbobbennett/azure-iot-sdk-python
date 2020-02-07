@@ -7,6 +7,7 @@
 
 import functools
 import logging
+import traceback
 import azure.iot.device.common.asyncio_compat as asyncio_compat
 
 logger = logging.getLogger(__name__)
@@ -69,9 +70,8 @@ class AwaitableCallback(object):
                 result = None
 
             if exception:
-                logger.error(
-                    "Callback completed with error {}".format(exception), exc_info=exception
-                )
+                logger.error("Callback completed with error {}".format(exception))
+                logger.error(traceback.format_exception_only(type(exception), exception))
                 loop.call_soon_threadsafe(self.future.set_exception, exception)
             else:
                 logger.debug("Callback completed with result {}".format(result))
