@@ -47,3 +47,11 @@ class TlsExchangeAuthError(ChainableException):
     """
 
     pass
+
+
+class ProxyError(ChainableException):
+    """
+    All proxy-related errors
+    """
+
+    pass

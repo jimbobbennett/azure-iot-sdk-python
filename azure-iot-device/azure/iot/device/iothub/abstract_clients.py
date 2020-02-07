@@ -183,6 +183,8 @@ class AbstractIoTHubDeviceClient(AbstractIoTHubClient):
         :type cipher: str or list(str)
         :param str product_info: Configuration Option. Default is empty string. The string contains
             arbitrary product info which is appended to the user agent string.
+        :param proxy_options: Options for sending traffic through proxy servers.
+        :type ProxyOptions: :class:`azure.iot.device.common.proxy_options`
 
         :raises: TypeError if given an unrecognized parameter.
 

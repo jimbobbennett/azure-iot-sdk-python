@@ -13,6 +13,7 @@ import traceback
 import weakref
 import socket
 from . import transport_exceptions as exceptions
+import socks
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +379,16 @@ class MQTTTransport(object):
                 # If the socket can't open (e.g. using iptables REJECT), we get a
                 # socket.error.  Convert this into ConnectionFailedError so we can retry
                 raise exceptions.ConnectionFailedError(cause=e)
+        except socks.ProxyError as pe:
+            # TODO There are many different proxy errors
+            # that can occur here but above is the base class.
+            # TODO Need to think about handling each one of them.
+            # TODO GeneralProxyError , SOCKS5Error ,SOCKS4Error , HTTPError
+            if isinstance(pe, socks.SOCKS5AuthError):
+                raise exceptions.UnauthorizedError(cause=pe)
+                # TODO : Should this be some other kind unauthorized ?
+            else:
+                raise exceptions.ProxyError(cause=pe)
         except Exception as e:
             raise exceptions.ProtocolClientError(
                 message="Unexpected Paho failure during connect", cause=e
