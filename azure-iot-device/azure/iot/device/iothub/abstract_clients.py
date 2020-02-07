@@ -52,6 +52,8 @@ def _get_pipeline_config_kwargs(**kwargs):
         new_kwargs["websockets"] = kwargs["websockets"]
     if "cipher" in kwargs:
         new_kwargs["cipher"] = kwargs["cipher"]
+    if "proxy_options" in kwargs:
+        new_kwargs["proxy_options"] = kwargs["proxy_options"]
     return new_kwargs
 
 
