@@ -9,20 +9,21 @@ import time
 import uuid
 from azure.iot.device import IoTHubDeviceClient, Message, ProxyOptions
 import socks
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 # The connection string for a device should never be stored in code. For the sake of simplicity we're using an environment variable here.
-conn_str = os.getenv("IOTHUB_DEVICE_CONNECTION_STRING")
+conn_str = "HostName=IOTHubQuickStart.azure-devices.net;DeviceId=crookshanks;SharedAccessKey=Y3AhIaab0smKoYh4PwELfT2iVf+kZ0hkGE3shbSf/2NWGYqVDsQzQwrGib/Rq3RLtMEEDWo66dCKDhlqvqC7MA=="
 
 # Create proxy options when trying to send via proxy
 proxy_opts = ProxyOptions(
-    proxy_type=socks.HTTP,
-    proxy_addr="hostname",
-    proxy_port="8080",
-    proxy_username="fake_username",
-    proxy_password="fake_password",
+    proxy_type=socks.HTTP, proxy_addr="127.0.0.1", proxy_port=8888  # localhost
 )
 # The client object is used to interact with your Azure IoT hub.
-device_client = IoTHubDeviceClient.create_from_connection_string(conn_str, proxy_options=proxy_opts)
+device_client = IoTHubDeviceClient.create_from_connection_string(
+    conn_str, websockets=True, proxy_options=proxy_opts
+)
 
 # Connect the client.
 device_client.connect()
